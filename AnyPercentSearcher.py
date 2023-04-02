@@ -8,6 +8,7 @@ PLATFORM_EXCLUSIVE = False # Enable to filter out games that are republished on 
 GENRES_TO_INCLUDE = [] # Leave as [] to skip including specific genre(s). Example: ["Action", "Adventure"]
 GENRES_TO_EXCLUDE = [] # Leave as [] to skip excluding specific genre(s). Example: ["Racing"]
 PRINT_RETRY_INFO = True
+PRINT_PARSE_ERRORS = True
 
 # Advanced Configuration
 RATE_LIMIT_TIMEOUT_SECONDS = 60
@@ -56,7 +57,21 @@ def get_platform_id(platform_name):
     url = "https://www.speedrun.com/api/v1/platforms"
     while True:
         response = requests.get(url)
-        data = response.json()
+        
+        if response.status_code == RATE_LIMIT_ERROR_CODE:
+            if PRINT_RETRY_INFO:
+                print(f"Rate limit reached when querying platform id. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
+            time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
+            continue
+        
+        try:
+            data = response.json()
+        except Exception as error:
+            if PRINT_PARSE_ERRORS:
+                print("Encountered error parsing platform id: " + str(error))
+                print("Retrying request...")
+            time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
+            continue
 
         # Iterate through platforms in the current page to find a match
         for platform in data['data']:
@@ -108,8 +123,15 @@ def get_platform_games(platform_id, genre_ids_to_include, genre_ids_to_exclude):
                 print(f"Rate limit reached when querying platform games. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
             time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
             continue
-
-        data = response.json()
+        
+        try:
+            data = response.json()
+        except Exception as error:
+            if PRINT_PARSE_ERRORS:
+                print("Encountered error parsing platform games: " + str(error))
+                print("Retrying request...")
+            time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
+            continue
 
         # Process games in the current page
         if 'data' in data:
@@ -140,12 +162,13 @@ def get_platform_games(platform_id, genre_ids_to_include, genre_ids_to_exclude):
             print(data)
             next_page = False
 
-def get_category_data(game_id):
+def get_category_data(game_id, max_retries = 4):
     """
     Retrieve categories data for the specified game from the Speedrun.com API.
     
     Args:
         game_id (str): The ID of the game to fetch categories for.
+        max_retries (int): The maximum number of times to retry a request before giving up.
 
     Returns:
         list: A list of dictionaries containing category data, or an empty list if data not found or rate limit is reached.
@@ -153,25 +176,36 @@ def get_category_data(game_id):
     categories_url = f"https://www.speedrun.com/api/v1/games/{game_id}/categories"
     categories_response = requests.get(categories_url)
     
+    if max_retries <= 0:
+        return [];
+    
     # Handle rate limit and wait before retrying
     if categories_response.status_code == RATE_LIMIT_ERROR_CODE:
         if PRINT_RETRY_INFO:
             print(f"Rate limit reached when fetching category data. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
         time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
-        return get_category_data(game_id)
+        return get_category_data(game_id, max_retries - 1)
     
-    categories_data = categories_response.json()
+    try:
+        categories_data = categories_response.json()
+    except Exception as error:
+        if PRINT_PARSE_ERRORS:
+            print("Encountered error parsing category data: " + str(error))
+            print("Retrying request...")
+        time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
+        return get_category_data(game_id, max_retries - 1)
     
     # Return the 'data' field if it exists, otherwise return an empty list
     return categories_data.get('data', [])
 
-def get_leaderboard_data(game_id, categories_data):
+def get_leaderboard_data(game_id, categories_data, max_retries = 4):
     """
     Retrieve leaderboard data for the specified game and categories from the Speedrun.com API.
 
     Args:
         game_id (str): The ID of the game to fetch leaderboard data for.
         categories_data (list): A list of dictionaries containing category data.
+        max_retries (int): The maximum number of times to retry a request before giving up.
 
     Returns:
         dict: A dictionary containing leaderboard data for the Any% category, or an empty dictionary if data not found or rate limit is reached.
@@ -188,9 +222,16 @@ def get_leaderboard_data(game_id, categories_data):
             if PRINT_RETRY_INFO:
                 print(f"Rate limit reached when fetching leaderboard data. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
             time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
-            return get_leaderboard_data(game_id, categories_data)
+            return get_leaderboard_data(game_id, categories_data, max_retries - 1)
 
-        leaderboard_data = leaderboard_response.json()
+        try:
+            leaderboard_data = leaderboard_response.json()
+        except Exception as error:
+            if PRINT_PARSE_ERRORS:
+                print("Encountered error parsing leaderboard data: " + str(error))
+                print("Retrying request...")
+            time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
+            return get_leaderboard_data(game_id, categories_data, max_retries - 1)
 
         # Return the 'data' field if it exists, otherwise return an empty dictionary
         return leaderboard_data.get('data', {})
