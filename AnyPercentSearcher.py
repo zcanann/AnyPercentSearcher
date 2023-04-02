@@ -1,13 +1,16 @@
 import requests
 import time
+import srcomapi, srcomapi.datatypes as dt
+
+api = srcomapi.SpeedrunCom()
 
 # Configuration
-PLATFORM_NAME = "GameCube"
-ANY_PERCENT_MIN_RUN_TIME = {"hours": 2, "minutes": 0}
+PLATFORM_NAME = "PC"
+ANY_PERCENT_MIN_RUN_TIME = {"hours": 1, "minutes": 0}
 PLATFORM_EXCLUSIVE = False # Enable to filter out games that are republished on multiple platforms (ie PC + GameCube)
 GENRES_TO_INCLUDE = [] # Leave as [] to skip including specific genre(s). Example: ["Action", "Adventure"]
 GENRES_TO_EXCLUDE = [] # Leave as [] to skip excluding specific genre(s). Example: ["Racing"]
-PRINT_RETRY_INFO = True
+PRINT_RETRY_INFO = False
 
 # Advanced Configuration
 RATE_LIMIT_TIMEOUT_SECONDS = 60
@@ -29,20 +32,26 @@ def main():
     else:
         genre_ids_to_include = []
         genre_ids_to_exclude = []
-
-    # If a valid platform ID is found, get platform games and filter based on the minimum run time
-    if platform_id:
-        platform_games = get_platform_games(platform_id, genre_ids_to_include, genre_ids_to_exclude)
-        filter_min_run_time = ANY_PERCENT_MIN_RUN_TIME['hours'] * 3600 + ANY_PERCENT_MIN_RUN_TIME['minutes'] * 60
-
-        # Iterate through the games and print the ones that meet the time filter criteria
-        for game in platform_games:
-            world_record_time = get_world_record_any(game['id'])
-            if world_record_time and world_record_time >= filter_min_run_time:
-                hours = int(world_record_time // 3600)
-                minutes = int((world_record_time % 3600) // 60)
-                print("{:3} hours {:2} minutes | {}".format(hours, minutes, game['names']['international']))
-
+    
+    games = get_games(platform_id)
+    filter_min_run_time = ANY_PERCENT_MIN_RUN_TIME['hours'] * 3600 + ANY_PERCENT_MIN_RUN_TIME['minutes'] * 60
+    
+    for game in games:
+        categories = game.categories
+        if len(categories) <= 0:
+            continue
+        records = categories[0].records
+        if len(records) <= 0:
+            continue
+        runs = records[0].runs
+        if len(runs) <= 0:
+            continue
+        world_record_time = runs[0]["run"].times['primary_t']
+        if world_record_time and world_record_time >= filter_min_run_time:
+            hours = int(world_record_time // 3600)
+            minutes = int((world_record_time % 3600) // 60)
+            print("{:3} hours {:2} minutes | {}".format(hours, minutes, game.name))
+        
 def get_platform_id(platform_name):
     """
     Get the platform's ID from the Speedrun.com API.
@@ -78,124 +87,33 @@ def get_platform_id(platform_name):
 
     return None
 
-def get_platform_games(platform_id, genre_ids_to_include, genre_ids_to_exclude):
+def get_games(platform_id):
     """
-    Get a list of games for the specified platform, filtered by genre.
+    Retrieve the world record Any% time for the specified game from the Speedrun.com API.
 
     Args:
-        platform_id (str): The ID of the platform to search for games.
-        genre_ids_to_include (list): A list of genre IDs to include.
-        genre_ids_to_exclude (list): A list of genre IDs to exclude.
-
-    Yields:
-        dict: A game that matches the platform and genre filters.
-    """
-    
-    def _get_game_detailed_data(game_id):
-        game_url = f"https://www.speedrun.com/api/v1/games/{game_id}"
-        game_response = requests.get(game_url)
-        game_data = game_response.json()
-        return game_data
-
-    url = f"https://www.speedrun.com/api/v1/games?platform={platform_id}"
-    next_page = True
-
-    while next_page:
-        response = requests.get(url)
-
-        if response.status_code == RATE_LIMIT_ERROR_CODE:
-            if PRINT_RETRY_INFO:
-                print(f"Rate limit reached when querying platform games. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
-            time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
-            continue
-
-        data = response.json()
-
-        # Process games in the current page
-        if 'data' in data:
-            for game in data['data']:
-                if not 'genres' in game:
-                    continue
-                if len(genre_ids_to_include) > 0 and not set(genre_ids_to_include).intersection(game['genres']):
-                    continue
-                if len(genre_ids_to_exclude) > 0 and set(genre_ids_to_exclude).intersection(game['genres']):
-                    continue
-                if PLATFORM_EXCLUSIVE:
-                    game_data = _get_game_detailed_data(game['id'])
-                    if 'data' in game_data and 'platforms' in game_data['data']:
-                        platforms = game_data['data']['platforms']
-                        if len(platforms) == 1 and platforms[0] == platform_id:
-                            yield game
-                else:
-                    yield game
-
-        # Check for the next page
-        if 'pagination' in data and 'links' in data['pagination']:
-            next_page_url = data['pagination']['links'][-1]['uri'] if data['pagination']['links'] else None
-            if next_page_url and data['pagination']['links'][-1]['rel'] == 'next':
-                url = next_page_url
-            else:
-                next_page = False
-        else:
-            print(data)
-            next_page = False
-
-def get_category_data(game_id):
-    """
-    Retrieve categories data for the specified game from the Speedrun.com API.
-    
-    Args:
-        game_id (str): The ID of the game to fetch categories for.
+        platform_id (str): The ID of the platform for which games are fetched.
 
     Returns:
-        list: A list of dictionaries containing category data, or an empty list if data not found or rate limit is reached.
+        Game: The srcom object containing game data
     """
-    categories_url = f"https://www.speedrun.com/api/v1/games/{game_id}/categories"
-    categories_response = requests.get(categories_url)
     
-    # Handle rate limit and wait before retrying
-    if categories_response.status_code == RATE_LIMIT_ERROR_CODE:
-        if PRINT_RETRY_INFO:
-            print(f"Rate limit reached when fetching category data. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
-        time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
-        return get_category_data(game_id)
-    
-    categories_data = categories_response.json()
-    
-    # Return the 'data' field if it exists, otherwise return an empty list
-    return categories_data.get('data', [])
+    # Number of games to fetch per request
+    max_results = 200
+    offset = 0
 
-def get_leaderboard_data(game_id, categories_data):
-    """
-    Retrieve leaderboard data for the specified game and categories from the Speedrun.com API.
+    while True:
+        games = api.search(dt.Game, {"platform": platform_id, "max": max_results, "offset": offset})
+        
+        # Exit if no more games left
+        if not games:
+            break
 
-    Args:
-        game_id (str): The ID of the game to fetch leaderboard data for.
-        categories_data (list): A list of dictionaries containing category data.
-
-    Returns:
-        dict: A dictionary containing leaderboard data for the Any% category, or an empty dictionary if data not found or rate limit is reached.
-    """
-    for category_data in categories_data:
-        if category_data['name'] != 'Any%':
-            continue
-
-        leaderboard_url = f"https://www.speedrun.com/api/v1/leaderboards/{game_id}/category/{category_data['id']}"
-        leaderboard_response = requests.get(leaderboard_url)
-
-        # Handle rate limit and wait before retrying
-        if leaderboard_response.status_code == RATE_LIMIT_ERROR_CODE:
-            if PRINT_RETRY_INFO:
-                print(f"Rate limit reached when fetching leaderboard data. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
-            time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
-            return get_leaderboard_data(game_id, categories_data)
-
-        leaderboard_data = leaderboard_response.json()
-
-        # Return the 'data' field if it exists, otherwise return an empty dictionary
-        return leaderboard_data.get('data', {})
-    return {}
-
+        for game in games:
+            yield game
+        
+        offset += max_results
+            
 def get_world_record_any(game_id):
     """
     Retrieve the world record Any% time for the specified game from the Speedrun.com API.
@@ -206,15 +124,24 @@ def get_world_record_any(game_id):
     Returns:
         float: The world record Any% time in seconds, or None if data not found or rate limit is reached.
     """
-    categories_data = get_category_data(game_id)
-    leaderboard_data = get_leaderboard_data(game_id, categories_data)
+    while True:
+        games = api.search(dt.Game, {"platform": platform_id, "max": max_results, "offset": offset})
+        
+        # Exit if no more games left
+        if not games:
+            break
 
-    if 'runs' in leaderboard_data:
-        runs = leaderboard_data['runs']
-        if len(runs) > 0:
-            return runs[0]['run']['times']['primary_t']
-
-    return None
+        for game in games:
+            categories = game.categories
+            if len(categories) <= 0:
+                continue
+            records = categories[0].records
+            if len(records) <= 0:
+                continue
+            runs = records[0].runs
+            if len(runs) <= 0:
+                continue
+            world_record_time = runs[0]["run"].times['primary_t']
 
 def get_genre_ids_to_include_and_exclude():
     """
