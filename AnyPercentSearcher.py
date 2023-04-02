@@ -1,12 +1,17 @@
 import requests
 import time
 
+# To pipe results to a file, run:
+# python -u AnyPercentSearcher.py > Results.txt
+# This script may take a few hours for platforms with a lot of games, such as PC
+
 # Configuration
 PLATFORM_NAME = "GameCube"
-PLATFORM_EXCLUSIVE = False
 ANY_PERCENT_MIN_RUN_TIME = {"hours": 2, "minutes": 0}
+PLATFORM_EXCLUSIVE = False # Enable to filter out games that are republished on multiple platforms (ie PC + GameCube)
 GENRES_TO_INCLUDE = [] # Leave as [] to skip including specific genre(s). Example: ["Action", "Adventure"]
 GENRES_TO_EXCLUDE = [] # Leave as [] to skip excluding specific genre(s). Example: ["Racing"]
+PRINT_RETRY_INFO = True
 
 # Advanced Configuration
 RATE_LIMIT_TIMEOUT_SECONDS = 60
@@ -103,7 +108,8 @@ def get_platform_games(platform_id, genre_ids_to_include, genre_ids_to_exclude):
         response = requests.get(url)
 
         if response.status_code == RATE_LIMIT_ERROR_CODE:
-            print(f"Rate limit reached when querying platform games. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
+            if PRINT_RETRY_INFO:
+                print(f"Rate limit reached when querying platform games. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
             time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
             continue
 
@@ -153,7 +159,8 @@ def get_category_data(game_id):
     
     # Handle rate limit and wait before retrying
     if categories_response.status_code == RATE_LIMIT_ERROR_CODE:
-        print(f"Rate limit reached when fetching category data. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
+        if PRINT_RETRY_INFO:
+            print(f"Rate limit reached when fetching category data. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
         time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
         return get_category_data(game_id)
     
@@ -182,7 +189,8 @@ def get_leaderboard_data(game_id, categories_data):
 
         # Handle rate limit and wait before retrying
         if leaderboard_response.status_code == RATE_LIMIT_ERROR_CODE:
-            print(f"Rate limit reached when fetching leaderboard data. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
+            if PRINT_RETRY_INFO:
+                print(f"Rate limit reached when fetching leaderboard data. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
             time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
             return get_leaderboard_data(game_id, categories_data)
 
@@ -228,7 +236,8 @@ def get_genre_ids_to_include_and_exclude():
 
         # Handle rate limit and wait before retrying
         if response.status_code == RATE_LIMIT_ERROR_CODE:
-            print(f"Rate limit reached when querying genre IDs. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
+            if PRINT_RETRY_INFO:
+                print(f"Rate limit reached when querying genre IDs. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
             time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
             continue
 
