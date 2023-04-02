@@ -1,11 +1,16 @@
 import requests
 import time
 
+# Configuration
 PLATFORM_NAME = "GameCube"  # Set the platform name here
 PLATFORM_EXCLUSIVE = False
-RATE_LIMIT_ERROR_CODE = 420
-RATE_LIMIT_TIMEOUT_SECONDS = 60
 ANY_PERCENT_MIN_RUN_TIME = {"hours": 2, "minutes": 0}
+
+# Advanced Configuration
+RATE_LIMIT_TIMEOUT_SECONDS = 60
+
+# Globals
+RATE_LIMIT_ERROR_CODE = 420
 
 # Function to get the platform's ID
 def get_platform_id(platform_name):
