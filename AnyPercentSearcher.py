@@ -4,9 +4,9 @@ import time
 # Configuration
 PLATFORM_NAME = "GameCube"
 PLATFORM_EXCLUSIVE = False
-ANY_PERCENT_MIN_RUN_TIME = {"hours": 0, "minutes": 30}
-GENRES_TO_INCLUDE = ["Action", "Adventure"] # Leave as [] to skip including specific genre(s).
-GENRES_TO_EXCLUDE = ["Racing"] # Leave as [] to skip excluding specific genre(s).
+ANY_PERCENT_MIN_RUN_TIME = {"hours": 2, "minutes": 0}
+GENRES_TO_INCLUDE = [] # Leave as [] to skip including specific genre(s). Example: ["Action", "Adventure"]
+GENRES_TO_EXCLUDE = [] # Leave as [] to skip excluding specific genre(s). Example: ["Racing"]
 
 # Advanced Configuration
 RATE_LIMIT_TIMEOUT_SECONDS = 60
@@ -170,7 +170,8 @@ if len(GENRES_TO_INCLUDE) > 0 or len(GENRES_TO_EXCLUDE) > 0:
     genre_ids_to_include, genre_ids_to_exclude = get_genre_ids_to_include()
     print(f"Found genre ids: {genre_ids_to_include} / {genre_ids_to_exclude}")
 else:
-    genre_ids_to_include, genre_ids_to_exclude = {}
+    genre_ids_to_include = []
+    genre_ids_to_exclude = []
 
 if platform_id:
     platform_games = get_platform_games(platform_id, genre_ids_to_include, genre_ids_to_exclude)
