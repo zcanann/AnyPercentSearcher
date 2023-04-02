@@ -6,7 +6,7 @@ PLATFORM_NAME = "GameCube"
 PLATFORM_EXCLUSIVE = False
 ANY_PERCENT_MIN_RUN_TIME = {"hours": 0, "minutes": 30}
 GENRES_TO_INCLUDE = ["Action", "Adventure"] # Leave as [] to skip including specific genre(s).
-GENRES_TO_EXCLUDE = ["Racing"] # Leave as [] to skip excluding a specific genre.
+GENRES_TO_EXCLUDE = ["Racing"] # Leave as [] to skip excluding specific genre(s).
 
 # Advanced Configuration
 RATE_LIMIT_TIMEOUT_SECONDS = 60
