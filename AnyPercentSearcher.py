@@ -42,7 +42,7 @@ def main():
         # Iterate through the games and print the ones that meet the time filter criteria
         for game in platform_games:
             world_record_time = get_world_record_any(game['id'])
-            if world_record_time and world_record_time > filter_min_run_time:
+            if world_record_time and world_record_time >= filter_min_run_time:
                 hours = int(world_record_time // 3600)
                 minutes = int((world_record_time % 3600) // 60)
                 print("{:3} hours {:2} minutes | {}".format(hours, minutes, game['names']['international']))
