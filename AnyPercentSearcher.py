@@ -1,10 +1,6 @@
 import requests
 import time
 
-# To pipe results to a file, run:
-# python -u AnyPercentSearcher.py > Results.txt
-# This script may take a few hours for platforms with a lot of games, such as PC
-
 # Configuration
 PLATFORM_NAME = "GameCube"
 ANY_PERCENT_MIN_RUN_TIME = {"hours": 2, "minutes": 0}
