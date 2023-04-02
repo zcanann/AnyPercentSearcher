@@ -2,9 +2,11 @@ import requests
 import time
 
 # Configuration
-PLATFORM_NAME = "GameCube"  # Set the platform name here
+PLATFORM_NAME = "GameCube"
 PLATFORM_EXCLUSIVE = False
-ANY_PERCENT_MIN_RUN_TIME = {"hours": 2, "minutes": 0}
+ANY_PERCENT_MIN_RUN_TIME = {"hours": 0, "minutes": 30}
+GENRES_TO_INCLUDE = ["Action", "Adventure"] # Leave as [] to skip including specific genre(s).
+GENRES_TO_EXCLUDE = ["Racing"] # Leave as [] to skip excluding a specific genre.
 
 # Advanced Configuration
 RATE_LIMIT_TIMEOUT_SECONDS = 60
@@ -30,7 +32,7 @@ def get_platform_id(platform_name):
     return None
 
 # Function to get games for the specified platform
-def get_platform_games(platform_id):
+def get_platform_games(platform_id, genre_ids_to_include, genre_ids_to_exclude):
     url = f"https://www.speedrun.com/api/v1/games?platform={platform_id}"
     next_page = True
     while next_page:
@@ -45,6 +47,12 @@ def get_platform_games(platform_id):
         
         if 'data' in data:
             for game in data['data']:
+                if not 'genres' in game:
+                    continue
+                if len(genre_ids_to_include) > 0 and not set(genre_ids_to_include).intersection(game['genres']):
+                    continue
+                if len(genre_ids_to_exclude) > 0 and set(genre_ids_to_exclude).intersection(game['genres']):
+                    continue
                 if PLATFORM_EXCLUSIVE:
                     # Get the game's detailed information
                     game_url = f"https://www.speedrun.com/api/v1/games/{game['id']}"
@@ -119,11 +127,53 @@ def get_world_record_any(game_id):
                 
     return None
 
+# Function to get a list of genres and their IDs
+def get_genre_ids_to_include():
+    url = "https://www.speedrun.com/api/v1/genres"
+    genre_ids_to_include = []
+    genre_ids_to_exclude = []
+    next_page = True
+    while next_page:
+        response = requests.get(url)
+        
+        if response.status_code == RATE_LIMIT_ERROR_CODE:
+            print(f"Rate limit reached when querying genre IDs. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
+            time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
+            continue
+        
+        data = response.json()
+        
+        for genre in data['data']:
+            if genre['name'] in GENRES_TO_INCLUDE:
+                genre_ids_to_include.append(genre['id'])
+            elif genre['name'] in GENRES_TO_EXCLUDE:
+                genre_ids_to_exclude.append(genre['id'])
+        
+        if 'pagination' in data and 'links' in data['pagination']:
+            next_page_url = data['pagination']['links'][-1]['uri'] if data['pagination']['links'] else None
+            if next_page_url and data['pagination']['links'][-1]['rel'] == 'next':
+                url = next_page_url
+            else:
+                next_page = False
+        else:
+            print(data)
+            next_page = False
+            
+    return genre_ids_to_include, genre_ids_to_exclude
+
+print(f"Finding platform id for {PLATFORM_NAME}...")
 platform_id = get_platform_id(PLATFORM_NAME)
-print("Finding games for: " + platform_id)
+print(f"Found platform id: {platform_id}")
+
+if len(GENRES_TO_INCLUDE) > 0 or len(GENRES_TO_EXCLUDE) > 0:
+    print(f"Finding genre ids for {GENRES_TO_INCLUDE} / {GENRES_TO_EXCLUDE}...")
+    genre_ids_to_include, genre_ids_to_exclude = get_genre_ids_to_include()
+    print(f"Found genre ids: {genre_ids_to_include} / {genre_ids_to_exclude}")
+else:
+    genre_ids_to_include, genre_ids_to_exclude = {}
 
 if platform_id:
-    platform_games = get_platform_games(platform_id)
+    platform_games = get_platform_games(platform_id, genre_ids_to_include, genre_ids_to_exclude)
     filter_min_run_time = ANY_PERCENT_MIN_RUN_TIME['hours'] * 3600 + ANY_PERCENT_MIN_RUN_TIME['minutes'] * 60
 
     for game in platform_games:
