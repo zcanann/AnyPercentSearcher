@@ -1,5 +1,7 @@
+import atexit
 import requests
 import time
+import shelve
 
 # Configuration
 PLATFORM_NAME = "GameCube"
@@ -15,6 +17,12 @@ RATE_LIMIT_TIMEOUT_SECONDS = 60
 
 # Globals
 RATE_LIMIT_ERROR_CODE = 420
+
+# Cache configuration
+cache = shelve.open("speedrun_api_cache")
+def close_cache():
+    cache.close()
+atexit.register(close_cache)
 
 def main():
     # Get the platform ID for the specified platform name
@@ -43,7 +51,7 @@ def main():
                 hours = int(world_record_time // 3600)
                 minutes = int((world_record_time % 3600) // 60)
                 print("{:3} hours {:2} minutes | {}".format(hours, minutes, game['names']['international']))
-
+    
 def get_platform_id(platform_name):
     """
     Get the platform's ID from the Speedrun.com API.
@@ -54,6 +62,10 @@ def get_platform_id(platform_name):
     Returns:
         str: The ID of the platform, or None if not found.
     """
+    
+    if platform_name in cache:
+        return cache[platform_name]
+    
     url = "https://www.speedrun.com/api/v1/platforms"
     while True:
         response = requests.get(url)
@@ -76,6 +88,7 @@ def get_platform_id(platform_name):
         # Iterate through platforms in the current page to find a match
         for platform in data['data']:
             if platform['name'] == platform_name:
+                cache[platform_name] = platform['id']
                 return platform['id']
 
         # Check for the next page, if any
@@ -112,31 +125,36 @@ def get_platform_games(platform_id, genre_ids_to_include, genre_ids_to_exclude):
         game_data = game_response.json()
         return game_data
 
-    url = f"https://www.speedrun.com/api/v1/games?platform={platform_id}"
+    games_url = f"https://www.speedrun.com/api/v1/games?platform={platform_id}"
     next_page = True
 
     while next_page:
-        response = requests.get(url)
+        if games_url not in cache:
+            response = requests.get(games_url)
 
-        if response.status_code == RATE_LIMIT_ERROR_CODE:
-            if PRINT_RETRY_INFO:
-                print(f"Rate limit reached when querying platform games. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
-            time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
-            continue
+            if response.status_code == RATE_LIMIT_ERROR_CODE:
+                if PRINT_RETRY_INFO:
+                    print(f"Rate limit reached when querying platform games. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
+                time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
+                continue
+            
+            try:
+                data = response.json()
+            except Exception as error:
+                if PRINT_PARSE_ERRORS:
+                    print("Encountered error parsing platform games: " + str(error))
+                    print("Retrying request...")
+                time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
+                continue
+            
+            cache[games_url] = data
+        else:
+            data = cache[games_url]
         
-        try:
-            data = response.json()
-        except Exception as error:
-            if PRINT_PARSE_ERRORS:
-                print("Encountered error parsing platform games: " + str(error))
-                print("Retrying request...")
-            time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
-            continue
-
         # Process games in the current page
         if 'data' in data:
             for game in data['data']:
-                if not 'genres' in game:
+                if 'genres' not in game:
                     continue
                 if len(genre_ids_to_include) > 0 and not set(genre_ids_to_include).intersection(game['genres']):
                     continue
@@ -155,7 +173,7 @@ def get_platform_games(platform_id, genre_ids_to_include, genre_ids_to_exclude):
         if 'pagination' in data and 'links' in data['pagination']:
             next_page_url = data['pagination']['links'][-1]['uri'] if data['pagination']['links'] else None
             if next_page_url and data['pagination']['links'][-1]['rel'] == 'next':
-                url = next_page_url
+                games_url = next_page_url
             else:
                 next_page = False
         else:
@@ -174,26 +192,33 @@ def get_category_data(game_id, max_retries = 4):
         list: A list of dictionaries containing category data, or an empty list if data not found or rate limit is reached.
     """
     categories_url = f"https://www.speedrun.com/api/v1/games/{game_id}/categories"
-    categories_response = requests.get(categories_url)
     
-    if max_retries <= 0:
-        return [];
-    
-    # Handle rate limit and wait before retrying
-    if categories_response.status_code == RATE_LIMIT_ERROR_CODE:
-        if PRINT_RETRY_INFO:
-            print(f"Rate limit reached when fetching category data. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
-        time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
-        return get_category_data(game_id, max_retries - 1)
-    
-    try:
-        categories_data = categories_response.json()
-    except Exception as error:
-        if PRINT_PARSE_ERRORS:
-            print("Encountered error parsing category data: " + str(error))
-            print("Retrying request...")
-        time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
-        return get_category_data(game_id, max_retries - 1)
+    if categories_url not in cache:
+        categories_response = requests.get(categories_url)
+        
+        if max_retries <= 0:
+            return [];
+        
+        # Handle rate limit and wait before retrying
+        if categories_response.status_code == RATE_LIMIT_ERROR_CODE:
+            if PRINT_RETRY_INFO:
+                print(f"Rate limit reached when fetching category data. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
+            time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
+            return get_category_data(game_id, max_retries - 1)
+        
+        # Handle generic errors
+        try:
+            categories_data = categories_response.json()
+        except Exception as error:
+            if PRINT_PARSE_ERRORS:
+                print("Encountered error parsing category data: " + str(error))
+                print("Retrying request...")
+            time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
+            return get_category_data(game_id, max_retries - 1)
+        
+        cache[categories_url] = categories_data
+    else:
+        categories_data = cache[categories_url]
     
     # Return the 'data' field if it exists, otherwise return an empty list
     return categories_data.get('data', [])
@@ -215,24 +240,31 @@ def get_leaderboard_data(game_id, categories_data, max_retries = 4):
             continue
 
         leaderboard_url = f"https://www.speedrun.com/api/v1/leaderboards/{game_id}/category/{category_data['id']}"
-        leaderboard_response = requests.get(leaderboard_url)
+        
+        if leaderboard_url not in cache:
+            leaderboard_response = requests.get(leaderboard_url)
 
-        # Handle rate limit and wait before retrying
-        if leaderboard_response.status_code == RATE_LIMIT_ERROR_CODE:
-            if PRINT_RETRY_INFO:
-                print(f"Rate limit reached when fetching leaderboard data. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
-            time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
-            return get_leaderboard_data(game_id, categories_data, max_retries - 1)
+            # Handle rate limit and wait before retrying
+            if leaderboard_response.status_code == RATE_LIMIT_ERROR_CODE:
+                if PRINT_RETRY_INFO:
+                    print(f"Rate limit reached when fetching leaderboard data. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
+                time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
+                return get_leaderboard_data(game_id, categories_data, max_retries - 1)
 
-        try:
-            leaderboard_data = leaderboard_response.json()
-        except Exception as error:
-            if PRINT_PARSE_ERRORS:
-                print("Encountered error parsing leaderboard data: " + str(error))
-                print("Retrying request...")
-            time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
-            return get_leaderboard_data(game_id, categories_data, max_retries - 1)
-
+            # Handle generic errors
+            try:
+                leaderboard_data = leaderboard_response.json()
+            except Exception as error:
+                if PRINT_PARSE_ERRORS:
+                    print("Encountered error parsing leaderboard data: " + str(error))
+                    print("Retrying request...")
+                time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
+                return get_leaderboard_data(game_id, categories_data, max_retries - 1)
+            
+            cache[leaderboard_url] = leaderboard_data
+        else:
+            leaderboard_data = cache[leaderboard_url]
+            
         # Return the 'data' field if it exists, otherwise return an empty dictionary
         return leaderboard_data.get('data', {})
     return {}
@@ -269,17 +301,30 @@ def get_genre_ids_to_include_and_exclude():
     genre_ids_to_exclude = []
 
     while True:
-        response = requests.get(url)
+        if url not in cache:
+            response = requests.get(url)
 
-        # Handle rate limit and wait before retrying
-        if response.status_code == RATE_LIMIT_ERROR_CODE:
-            if PRINT_RETRY_INFO:
-                print(f"Rate limit reached when querying genre IDs. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
-            time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
-            continue
-
-        data = response.json()
-
+            # Handle rate limit and wait before retrying
+            if response.status_code == RATE_LIMIT_ERROR_CODE:
+                if PRINT_RETRY_INFO:
+                    print(f"Rate limit reached when querying genre IDs. Waiting for {RATE_LIMIT_TIMEOUT_SECONDS} seconds before retrying.")
+                time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
+                continue
+            
+            # Handle generic errors
+            try:
+                data = response.json()
+            except Exception as error:
+                if PRINT_PARSE_ERRORS:
+                    print("Encountered error parsing genre data: " + str(error))
+                    print("Retrying request...")
+                time.sleep(RATE_LIMIT_TIMEOUT_SECONDS)
+                continue
+            
+            cache[url] = data
+        else:
+            data = cache[url]
+        
         # Iterate through genres in the current page and add matching genre IDs to the lists
         for genre in data['data']:
             if genre['name'] in GENRES_TO_INCLUDE:
