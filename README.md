@@ -1,4 +1,4 @@
-# AnyPercentSearcher
+# Any% Searcher
 Script to search speedrun.com for Any% games, filtering by platform and world record time. 
 
 This is helpful for finding games to Glitch Hunt. I've been meaning to write this script for years, but never wanted to learn the speedrun API.
